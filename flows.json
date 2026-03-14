@@ -1,0 +1,508 @@
+[
+    {
+        "id": "tab_meteo_id",
+        "type": "tab",
+        "label": "Station Météo RPi",
+        "disabled": false,
+        "info": "Supervision Météo"
+    },
+    {
+        "id": "inject_timer",
+        "type": "inject",
+        "z": "tab_meteo_id",
+        "name": "Lecture (Toutes les minutes)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 120,
+        "wires": [
+            [
+                "exec_dht22",
+                "exec_bmp280"
+            ]
+        ]
+    },
+    {
+        "id": "exec_dht22",
+        "type": "exec",
+        "z": "tab_meteo_id",
+        "command": "/home/pi/meteo_env/bin/python /home/pi/meteo_station/sensors/read_dht22.py",
+        "addpay": "",
+        "append": "",
+        "useSpawn": "false",
+        "timer": "",
+        "name": "Lire DHT22 (Temp & Hum)",
+        "x": 420,
+        "y": 80,
+        "wires": [
+            [
+                "json_parse_dht"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "exec_bmp280",
+        "type": "exec",
+        "z": "tab_meteo_id",
+        "command": "/home/pi/meteo_env/bin/python /home/pi/meteo_station/sensors/read_bmp280.py",
+        "addpay": "",
+        "append": "",
+        "useSpawn": "false",
+        "timer": "",
+        "name": "Lire BMP280 (Pres & Alt)",
+        "x": 430,
+        "y": 180,
+        "wires": [
+            [
+                "json_parse_bmp"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "json_parse_dht",
+        "type": "json",
+        "z": "tab_meteo_id",
+        "name": "JSON Parse DHT",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 670,
+        "y": 80,
+        "wires": [
+            [
+                "switch_dht_err",
+                "join_data"
+            ]
+        ]
+    },
+    {
+        "id": "json_parse_bmp",
+        "type": "json",
+        "z": "tab_meteo_id",
+        "name": "JSON Parse BMP",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 670,
+        "y": 180,
+        "wires": [
+            [
+                "switch_bmp_err",
+                "join_data"
+            ]
+        ]
+    },
+    {
+        "id": "switch_dht_err",
+        "type": "switch",
+        "z": "tab_meteo_id",
+        "name": "Check DHT Error",
+        "property": "payload.error",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "null"
+            },
+            {
+                "t": "nnull"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 890,
+        "y": 40,
+        "wires": [
+            [
+                "ui_gauge_temp_dht",
+                "ui_gauge_hum"
+            ],
+            [
+                "debug_dht_err"
+            ]
+        ]
+    },
+    {
+        "id": "switch_bmp_err",
+        "type": "switch",
+        "z": "tab_meteo_id",
+        "name": "Check BMP Error",
+        "property": "payload.error",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "null"
+            },
+            {
+                "t": "nnull"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 890,
+        "y": 240,
+        "wires": [
+            [
+                "ui_gauge_temp_bmp",
+                "ui_gauge_pres",
+                "ui_text_alt"
+            ],
+            [
+                "debug_bmp_err"
+            ]
+        ]
+    },
+    {
+        "id": "join_data",
+        "type": "join",
+        "z": "tab_meteo_id",
+        "name": "Assembler Capteurs",
+        "mode": "custom",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": true,
+        "timeout": "5",
+        "count": "2",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "num",
+        "reduceFixup": "",
+        "x": 900,
+        "y": 140,
+        "wires": [
+            [
+                "func_prepare_sql"
+            ]
+        ]
+    },
+    {
+        "id": "func_prepare_sql",
+        "type": "function",
+        "z": "tab_meteo_id",
+        "name": "Créer requête SQLite",
+        "func": "let dht = msg.payload['Lire DHT22 (Temp & Hum)'] || {};\nlet bmp = msg.payload['Lire BMP280 (Pres & Alt)'] || {};\n\nif(dht.error || bmp.error) return null; // Ignore si erreur.\n\nmsg.topic = `INSERT INTO meteo (timestamp, temp_dht, hum_dht, temp_bmp, pressure, altitude)\n             VALUES (datetime('now', 'localtime'), ${dht.temperature || 0}, ${dht.humidity || 0}, ${bmp.temperature || 0}, ${bmp.pressure || 0}, ${bmp.altitude || 0})`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1100,
+        "y": 140,
+        "wires": [
+            [
+                "sqlite_insert"
+            ]
+        ]
+    },
+    {
+        "id": "sqlite_insert",
+        "type": "sqlite",
+        "z": "tab_meteo_id",
+        "mydb": "sqldb_meteo",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "Insertion Base de données",
+        "x": 1330,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "debug_dht_err",
+        "type": "debug",
+        "z": "tab_meteo_id",
+        "name": "Erreur DHT22",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1080,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "debug_bmp_err",
+        "type": "debug",
+        "z": "tab_meteo_id",
+        "name": "Erreur BMP280",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1080,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_temp_dht",
+        "type": "ui_gauge",
+        "z": "tab_meteo_id",
+        "name": "Température DHT22",
+        "group": "ui_group_temp",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Temp. DHT22 (°C)",
+        "label": "°C",
+        "format": "{{payload.temperature}}",
+        "min": "-20",
+        "max": "60",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "25",
+        "seg2": "35",
+        "className": "",
+        "x": 1140,
+        "y": -60,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_hum",
+        "type": "ui_gauge",
+        "z": "tab_meteo_id",
+        "name": "Humidité",
+        "group": "ui_group_hum",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Humidité (%)",
+        "label": "%",
+        "format": "{{payload.humidity}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#53a3e8",
+            "#00b500",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "className": "",
+        "x": 1100,
+        "y": -20,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_temp_bmp",
+        "type": "ui_gauge",
+        "z": "tab_meteo_id",
+        "name": "Température BMP280",
+        "group": "ui_group_temp",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Temp. BMP280 (°C)",
+        "label": "°C",
+        "format": "{{payload.temperature}}",
+        "min": "-20",
+        "max": "60",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "25",
+        "seg2": "35",
+        "className": "",
+        "x": 1140,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_pres",
+        "type": "ui_gauge",
+        "z": "tab_meteo_id",
+        "name": "Pression",
+        "group": "ui_group_pres",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Pression (hPa)",
+        "label": "hPa",
+        "format": "{{payload.pressure}}",
+        "min": "900",
+        "max": "1100",
+        "colors": [
+            "#b5b500",
+            "#00b500",
+            "#b5b500"
+        ],
+        "seg1": "980",
+        "seg2": "1030",
+        "className": "",
+        "x": 1100,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "ui_text_alt",
+        "type": "ui_text",
+        "z": "tab_meteo_id",
+        "group": "ui_group_pres",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "name": "Altitude",
+        "label": "Altitude Actuelle:",
+        "format": "{{payload.altitude}} m",
+        "layout": "row-spread",
+        "className": "",
+        "x": 1100,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "http_in_csv",
+        "type": "http in",
+        "z": "tab_meteo_id",
+        "name": "API Export CSV",
+        "url": "/export",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 440,
+        "wires": [
+            [
+                "sqlite_read_all"
+            ]
+        ]
+    },
+    {
+        "id": "sqlite_read_all",
+        "type": "sqlite",
+        "z": "tab_meteo_id",
+        "mydb": "sqldb_meteo",
+        "sqlquery": "fixed",
+        "sql": "SELECT * FROM meteo ORDER BY timestamp DESC LIMIT 1000",
+        "name": "Lire Historique (1000 MAX)",
+        "x": 380,
+        "y": 440,
+        "wires": [
+            [
+                "csv_format"
+            ]
+        ]
+    },
+    {
+        "id": "csv_format",
+        "type": "csv",
+        "z": "tab_meteo_id",
+        "name": "Format JSON vers CSV",
+        "sep": ",",
+        "hdrin": "",
+        "hdrout": "once",
+        "multi": "mult",
+        "ret": "\\n",
+        "temp": "id,timestamp,temp_dht,hum_dht,temp_bmp,pressure,altitude",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": "",
+        "include_null_values": "",
+        "x": 630,
+        "y": 440,
+        "wires": [
+            [
+                "http_out_csv"
+            ]
+        ]
+    },
+    {
+        "id": "http_out_csv",
+        "type": "http response",
+        "z": "tab_meteo_id",
+        "name": "Téléchargement CSV",
+        "statusCode": "200",
+        "headers": {
+            "Content-Type": "text/csv",
+            "Content-Disposition": "attachment; filename=\"meteo_export.csv\""
+        },
+        "x": 860,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "sqldb_meteo",
+        "type": "sqlitedb",
+        "db": "/home/pi/meteo_station/database/meteo.db",
+        "mode": "RWC"
+    },
+    {
+        "id": "ui_group_temp",
+        "type": "ui_group",
+        "name": "Températures",
+        "tab": "ui_tab_dash",
+        "order": 1,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_group_hum",
+        "type": "ui_group",
+        "name": "Humidité",
+        "tab": "ui_tab_dash",
+        "order": 2,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_group_pres",
+        "type": "ui_group",
+        "name": "Pression & Altitude",
+        "tab": "ui_tab_dash",
+        "order": 3,
+        "disp": true,
+        "width": "6",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_tab_dash",
+        "type": "ui_tab",
+        "name": "Moniteur Station Météo",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    }
+]
